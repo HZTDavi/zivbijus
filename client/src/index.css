@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-primary text-beige font-sans antialiased selection:bg-gold-metallic selection:text-black;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-8 py-3 bg-transparent border border-gold-metallic text-gold-metallic hover:bg-gold-metallic hover:text-black transition-all duration-300 transform hover:-translate-y-1 rounded-sm uppercase tracking-widest text-xs font-bold;
+  }
+
+  .glass-header {
+    @apply bg-primary/80 backdrop-blur-md border-b border-white/5;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #D4AF37;
+}
