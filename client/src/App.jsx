@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import ProductDetails from './pages/ProductDetails';
 import Navbar from './components/Navbar';
+import CartDrawer from './components/CartDrawer';
 import { useAuth } from './context/AuthContext';
 
 function PrivateRoute({ children }) {
@@ -15,6 +16,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col font-sans bg-primary text-beige">
       <Navbar />
+      <CartDrawer />
       <div className="flex-grow">
         <Routes>
           <Route path="/" element={<Home />} />

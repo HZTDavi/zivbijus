@@ -8,7 +8,7 @@ export function AuthProvider({ children }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const token = localStorage.getItem('token');
+        const token = sessionStorage.getItem('token'); // Changed to sessionStorage for session-only persistence
         if (token) {
             setUser({ token });
         }
@@ -19,7 +19,7 @@ export function AuthProvider({ children }) {
         try {
             const res = await axios.post('http://localhost:3000/api/login', { username, password });
             if (res.data.success) {
-                localStorage.setItem('token', res.data.token);
+                sessionStorage.setItem('token', res.data.token); // Changed to sessionStorage
                 setUser({ token: res.data.token });
                 return true;
             }
@@ -31,7 +31,7 @@ export function AuthProvider({ children }) {
     };
 
     const logout = () => {
-        localStorage.removeItem('token');
+        sessionStorage.removeItem('token'); // Changed to sessionStorage
         setUser(null);
     };
 

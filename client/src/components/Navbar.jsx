@@ -1,9 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { User, ShoppingBag, LogOut } from 'lucide-react';
 
 export default function Navbar() {
     const { user, logout } = useAuth();
+    const { cartCount, toggleCart } = useCart();
     const location = useLocation();
     const isHome = location.pathname === '/';
 
@@ -13,7 +15,7 @@ export default function Navbar() {
 
                 {/* Left: Mobile Menu (Hidden for now, keeping simple) or Socials */}
                 <div className="hidden md:flex gap-4 text-sm text-beige-dark font-display">
-                    <a href="#" className="hover:text-gold-metallic transition-colors">Instagram</a>
+                    <a href="https://www.instagram.com/zivbijus/?igsh=YWJ4cmYwZjNnYWxw" target="_blank" rel="noopener noreferrer" className="hover:text-gold-metallic transition-colors">Instagram</a>
                 </div>
 
                 {/* Center: Logo */}
@@ -38,9 +40,11 @@ export default function Navbar() {
                             <User className="w-5 h-5" />
                         </Link>
                     )}
-                    <button className="relative text-beige-dark hover:text-gold-metallic transition-colors group">
+                    <button onClick={toggleCart} className="relative text-beige-dark hover:text-gold-metallic transition-colors group">
                         <ShoppingBag className="w-5 h-5" />
-                        <span className="absolute -top-2 -right-2 w-4 h-4 bg-gold-metallic text-secondary text-[10px] font-bold flex items-center justify-center rounded-full group-hover:bg-white transition-colors">0</span>
+                        {cartCount > 0 && (
+                            <span className="absolute -top-2 -right-2 w-4 h-4 bg-gold-metallic text-secondary text-[10px] font-bold flex items-center justify-center rounded-full group-hover:bg-white transition-colors">{cartCount}</span>
+                        )}
                     </button>
                 </div>
             </div>

@@ -3,6 +3,8 @@ const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 
 const app = express();
@@ -65,19 +67,40 @@ db.serialize(() => {
 });
 
 // Auth Creds
-const ADMIN_USER = 'Jessicabat';
-const ADMIN_PASS = 'Amordaminhavida';
+// Rate Limiter for Login
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit to 5 failed attempts per window
+  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-// Routes
+// Admin Hash (Generated with bcrypt)
+// Password: 'Amordaminhavida'
+const ADMIN_USER = 'Jessicabat';
+const ADMIN_USER_HASH = '$2b$10$J.h8jxD1P4WRnI0QV.0uyeu8Lu7jaDPiFxzS8XYga6CJSdTpea/f6';
 
 // Login
-app.post('/api/login', (req, res) => {
+app.post('/api/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    res.json({ success: true, token: 'fake-jwt-token-secret' });
-  } else {
-    res.status(401).json({ success: false, message: 'Credenciais inválidas' });
+
+  // Generic Error Message for security
+  const genericError = () => res.status(401).json({ success: false, message: 'Credenciais inválidas' });
+
+  if (username === ADMIN_USER) {
+    try {
+      const match = await bcrypt.compare(password, ADMIN_USER_HASH);
+      if (match) {
+        console.log("Login successful using Secure Hash");
+        return res.json({ success: true, token: 'fake-jwt-token-secret' });
+      }
+    } catch (e) {
+      console.error("Bcrypt error", e);
+    }
   }
+
+  return genericError();
 });
 
 // Middleware autenticação simples

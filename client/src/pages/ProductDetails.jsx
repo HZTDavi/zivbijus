@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Loader2, ShoppingBag } from 'lucide-react';
+import { useCart } from '../context/CartContext';
 
 export default function ProductDetails() {
     const { id } = useParams();
+    const { addToCart } = useCart();
     const [product, setProduct] = useState(null);
     const [selectedImage, setSelectedImage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -75,7 +77,10 @@ export default function ProductDetails() {
                         </div>
 
                         <div className="flex gap-4">
-                            <button className="flex-1 btn-primary text-base py-4 flex items-center justify-center gap-3 group">
+                            <button
+                                onClick={() => addToCart(product)}
+                                className="flex-1 btn-primary text-base py-4 flex items-center justify-center gap-3 group"
+                            >
                                 <ShoppingBag className="w-5 h-5 group-hover:text-black transition-colors" /> Adicionar à Sacola
                             </button>
                         </div>
@@ -87,7 +92,7 @@ export default function ProductDetails() {
                             </div>
                             <div>
                                 <span className="block text-gold-metallic mb-1 text-lg">✦</span>
-                                <p className="text-xs text-beige-dark uppercase tracking-widest">Garantia Vitalícia</p>
+                                <p className="text-xs text-beige-dark uppercase tracking-widest">Pensado em cada detalhe</p>
                             </div>
                             <div>
                                 <span className="block text-gold-metallic mb-1 text-lg">✦</span>

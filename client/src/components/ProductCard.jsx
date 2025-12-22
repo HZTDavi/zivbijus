@@ -1,10 +1,19 @@
 import { Link } from 'react-router-dom';
+import { useCart } from '../context/CartContext';
+import { ShoppingBag } from 'lucide-react';
 
 export default function ProductCard({ product }) {
+    const { addToCart } = useCart();
     const mainImage = product.images?.[0] || 'https://via.placeholder.com/400x400?text=Zivbijus';
 
+    const handleQuickAdd = (e) => {
+        e.preventDefault(); // Prevent link navigation
+        e.stopPropagation();
+        addToCart(product);
+    };
+
     return (
-        <Link to={`/product/${product.id}`} className="group block bg-secondary border border-white/5 overflow-hidden transition-all duration-500 hover:border-gold-metallic/30">
+        <Link to={`/product/${product.id}`} className="group block bg-secondary border border-white/5 overflow-hidden transition-all duration-500 hover:border-gold-metallic/30 relative">
             <div className="aspect-[4/5] w-full overflow-hidden relative">
                 <img
                     src={mainImage}
@@ -14,7 +23,12 @@ export default function ProductCard({ product }) {
                 />
                 {/* Quick Add Overlay */}
                 <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-6">
-                    <span className="bg-primary/90 text-gold-metallic backdrop-blur px-6 py-2 text-xs uppercase tracking-widest border border-gold-metallic/20">Ver Detalhes</span>
+                    <button
+                        onClick={handleQuickAdd}
+                        className="bg-primary/90 hover:bg-gold-metallic hover:text-secondary text-gold-metallic backdrop-blur px-6 py-2 text-xs uppercase tracking-widest border border-gold-metallic/20 flex items-center gap-2 transition-all"
+                    >
+                        <ShoppingBag className="w-3 h-3" /> Adicionar
+                    </button>
                 </div>
             </div>
             <div className="p-5 text-center">
