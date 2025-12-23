@@ -1,5 +1,5 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const sql = require('./db');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -44,42 +44,17 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// Database Setup
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('Error opening database', err.message);
-  } else {
-    console.log(`Connected to the SQLite database at ${DB_PATH}.`);
-    db.run("PRAGMA foreign_keys = ON"); // Enable Cascade Delete
-  }
+// Database Setup - using server/db.js
+// Verify connection
+sql`SELECT 1`.then(() => {
+  console.log('Connected to Supabase Postgres');
+}).catch(err => {
+  console.error('Failed to connect to Supabase:', err);
 });
 
 
-// Create tables and migrate
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    price REAL NOT NULL,
-    category TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    is_visible INTEGER DEFAULT 1
-  )`, (err) => {
-    // Migration for existing tables
-    if (!err) {
-      db.run("ALTER TABLE products ADD COLUMN is_visible INTEGER DEFAULT 1", () => { });
-      db.run("ALTER TABLE products ADD COLUMN category TEXT", () => { }); // Add category migration
-    }
-  });
-
-  db.run(`CREATE TABLE IF NOT EXISTS product_images (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    image_url TEXT NOT NULL,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-  )`);
-});
+// Tables are handled by setup_supabase.js or migrations.
+// No auto-migration needed on every start for now.
 
 // Auth Creds
 // Rate Limiter for Login
@@ -130,45 +105,48 @@ const authenticate = (req, res, next) => {
 };
 
 // GET Products
-app.get('/api/products', (req, res) => {
+app.get('/api/products', async (req, res) => {
   const { publicOnly, category } = req.query;
-  let query = `
-    SELECT p.*, 
-    (SELECT json_group_array(image_url) FROM product_images WHERE product_id = p.id) as images
-    FROM products p
-  `;
 
-  const conditions = [];
-  if (publicOnly === 'true') {
-    conditions.push('p.is_visible = 1');
-  }
-  if (category && category !== 'Todos') {
-    conditions.push(`p.category = '${category}'`);
-  }
-
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-
-  query += ` ORDER BY created_at DESC`;
-
-  db.all(query, [], (err, rows) => {
-    if (err) {
-      res.status(400).json({ error: err.message });
-      return;
+  try {
+    const conditions = [];
+    if (publicOnly === 'true') {
+      conditions.push(sql`p.is_visible = 1`);
     }
-    // Parse images string to JSON
-    const products = rows.map(row => ({
+    if (category && category !== 'Todos') {
+      conditions.push(sql`p.category = ${category}`);
+    }
+
+    const whereClause = conditions.length > 0
+      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+      : sql``;
+
+    const products = await sql`
+      SELECT p.*, 
+      COALESCE(
+        (SELECT json_agg(image_url) FROM product_images WHERE product_id = p.id), 
+        '[]'::json
+      ) as images
+      FROM products p
+      ${whereClause}
+      ORDER BY created_at DESC
+    `;
+
+    const formatted = products.map(row => ({
       ...row,
-      images: JSON.parse(row.images || '[]'),
+      // postgres.js parses JSON automatically, so images is already an array
       is_visible: row.is_visible === 1
     }));
-    res.json({ data: products });
-  });
+
+    res.json({ data: formatted });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // POST Product (Multipart)
-app.post('/api/products', authenticate, upload.array('images', 10), (req, res) => {
+app.post('/api/products', authenticate, upload.array('images', 10), async (req, res) => {
   const { name, description, price, is_visible, category } = req.body;
 
   if (!name || !price) {
@@ -176,89 +154,95 @@ app.post('/api/products', authenticate, upload.array('images', 10), (req, res) =
   }
 
   const isVisibleInt = is_visible === 'true' || is_visible === true || is_visible === '1' ? 1 : 0;
-  const insertProduct = 'INSERT INTO products (name, description, price, is_visible, category) VALUES (?, ?, ?, ?, ?)';
 
-  db.run(insertProduct, [name, description, price, isVisibleInt, category], function (err) {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-    const productId = this.lastID;
+  try {
+    const [result] = await sql`
+      INSERT INTO products (name, description, price, is_visible, category)
+      VALUES (${name}, ${description}, ${price}, ${isVisibleInt}, ${category})
+      RETURNING id, name
+    `;
+
+    const productId = result.id;
 
     // Handle uploaded files
     if (req.files && req.files.length > 0) {
-      const insertImage = 'INSERT INTO product_images (product_id, image_url) VALUES (?, ?)';
-      const stmt = db.prepare(insertImage);
+      const imagesData = req.files.map(file => ({
+        product_id: productId,
+        image_url: `${req.protocol}://${req.get('host')}/uploads/${file.filename}`
+      }));
 
-      req.files.forEach(file => {
-        const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
-        stmt.run(productId, imageUrl);
-      });
-
-      stmt.finalize();
+      await sql`
+        INSERT INTO product_images ${sql(imagesData, 'product_id', 'image_url')}
+      `;
     }
 
     res.json({
       message: 'Product created',
       data: { id: productId, name }
     });
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // PATCH Visibility
-app.patch('/api/products/:id/visibility', authenticate, (req, res) => {
+app.patch('/api/products/:id/visibility', authenticate, async (req, res) => {
   const id = req.params.id;
   const { is_visible } = req.body;
 
   const isVisibleInt = is_visible ? 1 : 0;
 
-  db.run('UPDATE products SET is_visible = ? WHERE id = ?', [isVisibleInt, id], function (err) {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-    res.json({ message: 'Visibility updated', changes: this.changes });
-  });
+  try {
+    const result = await sql`
+      UPDATE products SET is_visible = ${isVisibleInt} WHERE id = ${id}
+    `;
+    res.json({ message: 'Visibility updated', changes: result.count });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // DELETE Product
-app.delete('/api/products/:id', authenticate, (req, res) => {
+app.delete('/api/products/:id', authenticate, async (req, res) => {
   const id = req.params.id;
   console.log(`Received delete request for product ID: ${id}`);
 
-  // First, get images to delete from disk
-  db.all('SELECT image_url FROM product_images WHERE product_id = ?', [id], (err, rows) => {
-    if (err) {
-      console.error("Error fetching images for deletion", err);
-    } else {
-      rows.forEach(row => {
-        if (row.image_url && row.image_url.includes('/uploads/')) {
-          const parts = row.image_url.split('/uploads/');
-          if (parts.length > 1) {
-            const filename = parts[1];
-            if (filename) {
-              const filePath = path.join(UPLOADS_PATH, filename);
-              fs.unlink(filePath, (err) => {
-                if (err && err.code !== 'ENOENT') console.error("Failed to delete file:", filePath, err.message);
-              });
-            }
+  try {
+    // First, get images to delete from disk
+    const images = await sql`SELECT image_url FROM product_images WHERE product_id = ${id}`;
+
+    // Delete files from disk
+    images.forEach(row => {
+      if (row.image_url && row.image_url.includes('/uploads/')) {
+        const parts = row.image_url.split('/uploads/');
+        if (parts.length > 1) {
+          const filename = parts[1];
+          if (filename) {
+            const filePath = path.join(UPLOADS_PATH, filename);
+            fs.unlink(filePath, (err) => {
+              if (err && err.code !== 'ENOENT') console.error("Failed to delete file:", filePath, err.message);
+            });
           }
         }
-      });
-    }
+      }
+    });
 
     // Now delete product (Cascade will remove image records from DB)
-    db.run('DELETE FROM products WHERE id = ?', id, function (err) {
-      if (err) {
-        console.error("Error deleting product from DB:", err);
-        return res.status(400).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        console.log(`Product ID ${id} not found`);
-        return res.status(404).json({ message: 'Product not found' });
-      }
-      console.log(`Product ID ${id} deleted successfully`);
-      res.json({ message: 'Product and associated files deleted', changes: this.changes });
-    });
-  });
+    const result = await sql`DELETE FROM products WHERE id = ${id}`;
+
+    if (result.count === 0) {
+      console.log(`Product ID ${id} not found`);
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    console.log(`Product ID ${id} deleted successfully`);
+    res.json({ message: 'Product and associated files deleted', changes: result.count });
+
+  } catch (err) {
+    console.error("Error deleting product from DB:", err);
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Handle React Routing, return all requests to React app
