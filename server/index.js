@@ -78,8 +78,8 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   }
 
   try {
-    // Find user by username
-    const users = await sql`SELECT * FROM users WHERE username = ${username} LIMIT 1`;
+    // Find user by username (case insensitive)
+    const users = await sql`SELECT * FROM users WHERE LOWER(username) = LOWER(${username}) LIMIT 1`;
 
     if (users.length > 0) {
       const user = users[0];
