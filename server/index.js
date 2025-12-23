@@ -66,28 +66,32 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Admin Hash (Generated with bcrypt)
-// Password: 'Amordaminhavida'
-const ADMIN_USER = 'Jessicabat';
-const ADMIN_USER_HASH = '$2b$10$J.h8jxD1P4WRnI0QV.0uyeu8Lu7jaDPiFxzS8XYga6CJSdTpea/f6';
-
-// Login
+// Login using Database
 app.post('/api/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
 
   // Generic Error Message for security
   const genericError = () => res.status(401).json({ success: false, message: 'Credenciais inválidas' });
 
-  if (username === ADMIN_USER) {
-    try {
-      const match = await bcrypt.compare(password, ADMIN_USER_HASH);
+  if (!username || !password) {
+    return genericError();
+  }
+
+  try {
+    // Find user by username
+    const users = await sql`SELECT * FROM users WHERE username = ${username} LIMIT 1`;
+
+    if (users.length > 0) {
+      const user = users[0];
+      const match = await bcrypt.compare(password, user.password);
+
       if (match) {
-        console.log("Login successful using Secure Hash");
+        console.log(`Login successful for user: ${username}`);
         return res.json({ success: true, token: 'fake-jwt-token-secret' });
       }
-    } catch (e) {
-      console.error("Bcrypt error", e);
     }
+  } catch (e) {
+    console.error("Login error", e);
   }
 
   return genericError();
