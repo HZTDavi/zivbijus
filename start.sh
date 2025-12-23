@@ -5,6 +5,6 @@ echo "Iniciando Servidor Backend..."
 cd server && npm run dev &
 
 echo "Iniciando Frontend Client..."
-cd ../client && npm run dev &
+cd client && npm run dev &
 
 wait

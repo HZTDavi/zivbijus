@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_URL } from '../config';
 
 const AuthContext = createContext();
 
@@ -17,7 +18,7 @@ export function AuthProvider({ children }) {
 
     const login = async (username, password) => {
         try {
-            const res = await axios.post('http://localhost:3000/api/login', { username, password });
+            const res = await axios.post(`${API_URL}/api/login`, { username, password });
             if (res.data.success) {
                 sessionStorage.setItem('token', res.data.token); // Changed to sessionStorage
                 setUser({ token: res.data.token });

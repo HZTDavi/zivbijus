@@ -5,15 +5,33 @@ Aplicação Fullstack de E-commerce Premium com Painel Administrativo.
 ## Tecnologias
 - **Frontend**: React, Tailwind CSS, Lucide Icons
 - **Backend**: Node.js, Express
-- **Database**: SQLite
+- **Database**: MySQL
+
+## Pré-requisitos
+- **MySQL Server**: É necessário ter um servidor MySQL rodando localmente (ou configurar o `.env`).
+- **Banco de Dados**: Crie um banco de dados chamado `zivbijus_db`.
 
 ## Inicialização Rápida
 
-O ambiente já está configurado. Para iniciar ambos os serviços (Backend API e Frontend):
+1. Configure o arquivo `.env` no diretório `server/`:
+   ```ini
+   DB_HOST=localhost
+   DB_USER=root
+   DB_PASSWORD=sua_senha
+   DB_NAME=zivbijus_db
+   PORT=3000
+   ```
 
-```bash
-./start.sh
-```
+2. Para iniciar ambos os serviços (Backend API e Frontend):
+   ```bash
+   ./start.sh
+   ```
+
+3. (Opcional) Migrar dados do SQLite antigo:
+   ```bash
+   cd server
+   node migrate_db.js
+   ```
 
 Acesse a aplicação em: **http://localhost:5173**
 
@@ -27,4 +45,4 @@ Para acessar o Painel Administrativo em `/login`:
 ## Estrutura do Projeto
 
 - `/client`: Código fonte do Frontend (React)
-- `/server`: Código fonte do Backend (API) e Banco de Dados (`database.sqlite`)
+- `/server`: Código fonte do Backend (API)

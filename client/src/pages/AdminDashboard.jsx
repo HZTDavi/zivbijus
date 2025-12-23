@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { Trash2, Plus, X, Package, DollarSign, Image, Save, Upload, Eye, EyeOff } from 'lucide-react';
+import { API_URL } from '../config';
 
 export default function AdminDashboard() {
     const { user } = useAuth();
@@ -32,8 +33,12 @@ export default function AdminDashboard() {
 
     const fetchProducts = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/products');
-            setProducts(res.data.data);
+            const res = await axios.get(`${API_URL}/api/products`);
+            if (res.data && Array.isArray(res.data.data)) {
+                setProducts(res.data.data);
+            } else {
+                setProducts([]);
+            }
         } catch (error) {
             console.error("Error fetching products", error);
         }
@@ -105,7 +110,7 @@ export default function AdminDashboard() {
                 formData.append('images', file);
             });
 
-            await axios.post('http://localhost:3000/api/products', formData, {
+            await axios.post(`${API_URL}/api/products`, formData, {
                 headers: {
                     'Authorization': `Bearer ${user.token}`,
                     'Content-Type': 'multipart/form-data'
@@ -130,7 +135,7 @@ export default function AdminDashboard() {
 
     const toggleVisibility = async (id, currentStatus) => {
         try {
-            await axios.patch(`http://localhost:3000/api/products/${id}/visibility`, { is_visible: !currentStatus }, {
+            await axios.patch(`${API_URL}/api/products/${id}/visibility`, { is_visible: !currentStatus }, {
                 headers: { Authorization: `Bearer ${user.token}` }
             });
             fetchProducts(); // Refresh list
@@ -148,7 +153,7 @@ export default function AdminDashboard() {
         console.log("Token usado:", user?.token);
 
         try {
-            const response = await axios.delete(`http://localhost:3000/api/products/${id}`, {
+            const response = await axios.delete(`${API_URL}/api/products/${id}`, {
                 headers: { Authorization: `Bearer ${user.token}` }
             });
             console.log("Resposta delete:", response.data);

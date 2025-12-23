@@ -1,14 +1,15 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const mysql = require('mysql2');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
+require('dotenv').config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({ origin: '*' }));
@@ -16,9 +17,16 @@ app.use(express.json());
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Serve Frontend Static files
+app.use(express.static(path.join(__dirname, 'dist')));
+
 // Multer Setup
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
+    // Ensure directory exists
+    if (!fs.existsSync('uploads/')) {
+      fs.mkdirSync('uploads/');
+    }
     cb(null, 'uploads/')
   },
   filename: function (req, file, cb) {
@@ -29,44 +37,64 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Database Setup
-const dbPath = path.resolve(__dirname, 'database.sqlite');
-const db = new sqlite3.Database(dbPath, (err) => {
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 3306,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
+
+// Check connection and init DB
+pool.getConnection((err, connection) => {
   if (err) {
-    console.error('Error opening database', err.message);
+    console.error('Error connecting to MySQL database:', err.message);
+    if (err.code === 'ER_BAD_DB_ERROR') {
+      console.error(`Database '${process.env.DB_NAME}' not found. Please create it manually.`);
+    }
   } else {
-    console.log('Connected to the SQLite database.');
-    db.run("PRAGMA foreign_keys = ON"); // Enable Cascade Delete
+    console.log('Connected to the MySQL database.');
+    initDB(connection);
+    connection.release();
   }
 });
 
+function initDB(connection) {
+  const createProducts = `
+    CREATE TABLE IF NOT EXISTS products (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      description TEXT,
+      price DECIMAL(10, 2) NOT NULL,
+      category VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      is_visible BOOLEAN DEFAULT TRUE
+    )
+  `;
 
-// Create tables and migrate
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    price REAL NOT NULL,
-    category TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    is_visible INTEGER DEFAULT 1
-  )`, (err) => {
-    // Migration for existing tables
-    if (!err) {
-      db.run("ALTER TABLE products ADD COLUMN is_visible INTEGER DEFAULT 1", () => { });
-      db.run("ALTER TABLE products ADD COLUMN category TEXT", () => { }); // Add category migration
+  const createImages = `
+    CREATE TABLE IF NOT EXISTS product_images (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id INT NOT NULL,
+      image_url TEXT NOT NULL,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    )
+  `;
+
+  connection.query(createProducts, (err) => {
+    if (err) console.error("Error creating products table:", err);
+    else {
+      connection.query(createImages, (err) => {
+        if (err) console.error("Error creating product_images table:", err);
+      });
     }
   });
+}
 
-  db.run(`CREATE TABLE IF NOT EXISTS product_images (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    image_url TEXT NOT NULL,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-  )`);
-});
-
-// Auth Creds
+// AuthCreds
 // Rate Limiter for Login
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -106,7 +134,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
 // Middleware autenticação simples
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization;
-  console.log('Auth attempt:', token); // Debug log
+  // console.log('Auth attempt:', token);
   if (token === 'Bearer fake-jwt-token-secret') {
     next();
   } else {
@@ -118,18 +146,23 @@ const authenticate = (req, res, next) => {
 // GET Products
 app.get('/api/products', (req, res) => {
   const { publicOnly, category } = req.query;
+  // MySQL requires JSON_ARRAYAGG for generic grouping of JSON
+  // Note: JSON_ARRAYAGG might return NULL if no images, so we handle that in JS
   let query = `
     SELECT p.*, 
-    (SELECT json_group_array(image_url) FROM product_images WHERE product_id = p.id) as images
+    (SELECT JSON_ARRAYAGG(image_url) FROM product_images WHERE product_id = p.id) as images
     FROM products p
   `;
 
   const conditions = [];
+  const params = [];
+
   if (publicOnly === 'true') {
     conditions.push('p.is_visible = 1');
   }
   if (category && category !== 'Todos') {
-    conditions.push(`p.category = '${category}'`);
+    conditions.push('p.category = ?');
+    params.push(category);
   }
 
   if (conditions.length > 0) {
@@ -138,17 +171,26 @@ app.get('/api/products', (req, res) => {
 
   query += ` ORDER BY created_at DESC`;
 
-  db.all(query, [], (err, rows) => {
+  pool.query(query, params, (err, rows) => {
     if (err) {
+      console.error("DB Error:", err);
       res.status(400).json({ error: err.message });
       return;
     }
-    // Parse images string to JSON
-    const products = rows.map(row => ({
-      ...row,
-      images: JSON.parse(row.images || '[]'),
-      is_visible: row.is_visible === 1
-    }));
+    // Parse images
+    const products = rows.map(row => {
+      let images = row.images;
+      if (!images) images = [];
+      if (typeof images === 'string') {
+        try { images = JSON.parse(images); } catch (e) { images = []; }
+      }
+
+      return {
+        ...row,
+        images: images,
+        is_visible: row.is_visible === 1
+      };
+    });
     res.json({ data: products });
   });
 });
@@ -164,28 +206,23 @@ app.post('/api/products', authenticate, upload.array('images', 10), (req, res) =
   const isVisibleInt = is_visible === 'true' || is_visible === true || is_visible === '1' ? 1 : 0;
   const insertProduct = 'INSERT INTO products (name, description, price, is_visible, category) VALUES (?, ?, ?, ?, ?)';
 
-  db.run(insertProduct, [name, description, price, isVisibleInt, category], function (err) {
+  pool.query(insertProduct, [name, description, price, isVisibleInt, category], function (err, result) {
     if (err) {
       return res.status(400).json({ error: err.message });
     }
-    const productId = this.lastID;
+    const productId = result.insertId;
 
     // Handle uploaded files
     if (req.files && req.files.length > 0) {
-      const insertImage = 'INSERT INTO product_images (product_id, image_url) VALUES (?, ?)';
-      const stmt = db.prepare(insertImage);
-
-      req.files.forEach(file => {
-        const imageUrl = `http://localhost:3000/uploads/${file.filename}`;
-        stmt.run(productId, imageUrl);
+      const insertImage = 'INSERT INTO product_images (product_id, image_url) VALUES ?';
+      const values = req.files.map(file => {
+        const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
+        return [productId, imageUrl];
       });
 
-      stmt.finalize();
-    }
-    // Handle manual URLs if any (mixed scenario, though frontend will prioritize files now)
-    else if (req.body.existing_images) {
-      // Logic for existing images if we were editing, but this is create. 
-      // Keeping simple for now.
+      pool.query(insertImage, [values], (err) => {
+        if (err) console.error("Error inserting images", err);
+      });
     }
 
     res.json({
@@ -202,11 +239,11 @@ app.patch('/api/products/:id/visibility', authenticate, (req, res) => {
 
   const isVisibleInt = is_visible ? 1 : 0;
 
-  db.run('UPDATE products SET is_visible = ? WHERE id = ?', [isVisibleInt, id], function (err) {
+  pool.query('UPDATE products SET is_visible = ? WHERE id = ?', [isVisibleInt, id], function (err, result) {
     if (err) {
       return res.status(400).json({ error: err.message });
     }
-    res.json({ message: 'Visibility updated', changes: this.changes });
+    res.json({ message: 'Visibility updated', changes: result.affectedRows });
   });
 });
 
@@ -216,10 +253,9 @@ app.delete('/api/products/:id', authenticate, (req, res) => {
   console.log(`Received delete request for product ID: ${id}`);
 
   // First, get images to delete from disk
-  db.all('SELECT image_url FROM product_images WHERE product_id = ?', [id], (err, rows) => {
+  pool.query('SELECT image_url FROM product_images WHERE product_id = ?', [id], (err, rows) => {
     if (err) {
       console.error("Error fetching images for deletion", err);
-      // Continue to delete product anyway
     } else {
       rows.forEach(row => {
         if (row.image_url && row.image_url.includes('/uploads/')) {
@@ -237,23 +273,27 @@ app.delete('/api/products/:id', authenticate, (req, res) => {
       });
     }
 
-    // Now delete product (Cascade will remove image records from DB)
-    db.run('DELETE FROM products WHERE id = ?', id, function (err) {
+    // Now delete product
+    pool.query('DELETE FROM products WHERE id = ?', [id], function (err, result) {
       if (err) {
         console.error("Error deleting product from DB:", err);
         return res.status(400).json({ error: err.message });
       }
-      if (this.changes === 0) {
+      if (result.affectedRows === 0) {
         console.log(`Product ID ${id} not found`);
         return res.status(404).json({ message: 'Product not found' });
       }
       console.log(`Product ID ${id} deleted successfully`);
-      res.json({ message: 'Product and associated files deleted', changes: this.changes });
+      res.json({ message: 'Product and associated files deleted', changes: result.affectedRows });
     });
   });
+});
+
+// Handle React Routing, return all requests to React app
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
-

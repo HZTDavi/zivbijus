@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Loader2, ShoppingBag } from 'lucide-react';
+import { API_URL } from '../config';
 import { useCart } from '../context/CartContext';
 
 export default function ProductDetails() {
@@ -18,11 +19,13 @@ export default function ProductDetails() {
     const fetchProduct = async () => {
         try {
             // Fetching all for simplicity as per current backend implementation
-            const res = await axios.get('http://localhost:3000/api/products?publicOnly=true');
-            const found = res.data.data.find(p => p.id === parseInt(id));
-            if (found) {
-                setProduct(found);
-                if (found.images && found.images.length > 0) setSelectedImage(found.images[0]);
+            const res = await axios.get(`${API_URL}/api/products?publicOnly=true`);
+            if (res.data && Array.isArray(res.data.data)) {
+                const found = res.data.data.find(p => p.id === parseInt(id));
+                if (found) {
+                    setProduct(found);
+                    if (found.images && found.images.length > 0) setSelectedImage(found.images[0]);
+                }
             }
         } catch (err) {
             console.error(err);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import ProductCard from '../components/ProductCard';
 import { Loader2, ArrowRight } from 'lucide-react';
+import { API_URL } from '../config';
 
 export default function Home() {
     const [products, setProducts] = useState([]);
@@ -14,8 +15,14 @@ export default function Home() {
 
     const fetchProducts = async () => {
         try {
-            const res = await axios.get('http://localhost:3000/api/products?publicOnly=true');
-            setProducts(res.data.data);
+            const res = await axios.get(`${API_URL}/api/products?publicOnly=true`);
+            // Safeguard: Ensure we received an array. If server returns HTML (error), default to empty.
+            if (res.data && Array.isArray(res.data.data)) {
+                setProducts(res.data.data);
+            } else {
+                console.error("API response weird (not array):", res.data);
+                setProducts([]);
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -24,9 +31,11 @@ export default function Home() {
     };
 
     // Filter products based on active category
-    const filteredProducts = activeCategory === 'Todos'
-        ? products
-        : products.filter(p => p.category === activeCategory);
+    const filteredProducts = !products
+        ? []
+        : activeCategory === 'Todos'
+            ? products
+            : products.filter(p => p.category === activeCategory);
 
     return (
         <div className="bg-primary min-h-screen">
