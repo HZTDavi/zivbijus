@@ -27,3 +27,9 @@ yarn-error.log*
 server/database.sqlite
 server/uploads/*
 !server/uploads/.gitkeep
+
+# Deployment artifacts
+zivbijus_deploy.zip
+zivbijus_deploy/
+deploy_package/
+create_deployment_package.js

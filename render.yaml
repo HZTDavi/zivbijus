@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: zivbijus-api
+    env: node
+    plan: free
+    buildCommand: cd client && npm install && npm run build && mkdir -p ../server/dist && cp -r dist/* ../server/dist/ && cd ../server && npm install
+    startCommand: cd server && node index.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: STORAGE_PATH
+        value: /var/lib/data
+    disk:
+      name: zivbijus-data
+      mountPath: /var/lib/data
+      sizeGB: 1
