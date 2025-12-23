@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
-import axios from 'axios';
+import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { Trash2, Plus, X, Package, DollarSign, Image, Save, Upload, Eye, EyeOff } from 'lucide-react';
-import { API_URL } from '../config';
+// import { API_URL } from '../config'; (Removed)
 
 export default function AdminDashboard() {
     const { user } = useAuth();
@@ -33,12 +33,19 @@ export default function AdminDashboard() {
 
     const fetchProducts = async () => {
         try {
-            const res = await axios.get(`${API_URL}/api/products`);
-            if (res.data && Array.isArray(res.data.data)) {
-                setProducts(res.data.data);
-            } else {
-                setProducts([]);
-            }
+            // Select logic same as Home but without filter
+            const { data, error } = await supabase
+                .from('products')
+                .select(`*, product_images(image_url)`)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            const formatted = data.map(p => ({
+                ...p,
+                images: p.product_images ? p.product_images.map(img => img.image_url) : []
+            }));
+            setProducts(formatted || []);
         } catch (error) {
             console.error("Error fetching products", error);
         }
@@ -94,28 +101,70 @@ export default function AdminDashboard() {
         setPreviewUrls(newPreviews);
     };
 
+    const uploadImage = async (file) => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random()}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        // Upload to 'product-images' bucket
+        // If bucket doesn't exist, this fails. We assume it exists (Standard: 'product-images' public bucket)
+        const { error: uploadError } = await supabase.storage
+            .from('product-images')
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+            .from('product-images')
+            .getPublicUrl(filePath);
+
+        return publicUrl;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
             if (!user) return;
 
-            const formData = new FormData();
-            formData.append('name', name);
-            formData.append('price', price);
-            formData.append('description', description);
-            formData.append('category', category); // Add Category
-            formData.append('is_visible', isVisible);
+            // 1. Insert Product
+            const { data: productData, error: productError } = await supabase
+                .from('products')
+                .insert([
+                    {
+                        name,
+                        price,
+                        description,
+                        category,
+                        is_visible: isVisible ? 1 : 0
+                    }
+                ])
+                .select()
+                .single();
 
-            selectedFiles.forEach(file => {
-                formData.append('images', file);
-            });
+            if (productError) throw productError;
 
-            await axios.post(`${API_URL}/api/products`, formData, {
-                headers: {
-                    'Authorization': `Bearer ${user.token}`,
-                    'Content-Type': 'multipart/form-data'
+            const productId = productData.id;
+
+            // 2. Upload Images and Insert Records
+            if (selectedFiles.length > 0) {
+                const uploadedUrls = [];
+                for (const file of selectedFiles) {
+                    try {
+                        const url = await uploadImage(file);
+                        uploadedUrls.push({ product_id: productId, image_url: url });
+                    } catch (uplErr) {
+                        console.error("Failed to upload one image", uplErr);
+                    }
                 }
-            });
+
+                if (uploadedUrls.length > 0) {
+                    const { error: imgError } = await supabase
+                        .from('product_images')
+                        .insert(uploadedUrls);
+
+                    if (imgError) console.error("Error inserting image records:", imgError);
+                }
+            }
 
             // Clear form
             setName('');
@@ -129,16 +178,19 @@ export default function AdminDashboard() {
             alert('Produto adicionado com sucesso!');
         } catch (err) {
             console.error(err);
-            alert('Erro ao adicionar produto: ' + (err.response?.data?.error || err.message));
+            alert('Erro ao adicionar produto: ' + err.message);
         }
     };
 
     const toggleVisibility = async (id, currentStatus) => {
         try {
-            await axios.patch(`${API_URL}/api/products/${id}/visibility`, { is_visible: !currentStatus }, {
-                headers: { Authorization: `Bearer ${user.token}` }
-            });
-            fetchProducts(); // Refresh list
+            const { error } = await supabase
+                .from('products')
+                .update({ is_visible: !currentStatus ? 1 : 0 })
+                .eq('id', id);
+
+            if (error) throw error;
+            fetchProducts();
         } catch (err) {
             console.error(err);
             alert('Erro ao alterar visibilidade');
@@ -146,34 +198,21 @@ export default function AdminDashboard() {
     };
 
     const handleDelete = async (id) => {
-        console.log("Tentando deletar produto ID:", id); // Debug
-        // if (!window.confirm('Tem certeza absoluta que deseja excluir este produto?')) return;
-
-
-        console.log("Token usado:", user?.token);
+        if (!window.confirm('Tem certeza absoluta que deseja excluir este produto?')) return;
 
         try {
-            const response = await axios.delete(`${API_URL}/api/products/${id}`, {
-                headers: { Authorization: `Bearer ${user.token}` }
-            });
-            console.log("Resposta delete:", response.data);
+            const { error } = await supabase
+                .from('products')
+                .delete()
+                .eq('id', id);
 
-            if (response.status === 200) {
-                alert('Produto excluído com sucesso.');
-                // Optimistic update to remove from UI immediately
-                setProducts(products.filter(p => p.id !== id));
-            }
+            if (error) throw error;
+
+            alert('Produto excluído com sucesso.');
+            setProducts(products.filter(p => p.id !== id));
         } catch (err) {
-            console.error("Erro detalhado no delete:", err);
-            const errorMessage = err.response?.data?.error || err.message;
-            if (err.response?.status === 401) {
-                alert(`Erro de autorização (401). Tente fazer login novamente. Detalhes: ${errorMessage}`);
-            } else if (err.response?.status === 404) {
-                alert(`Produto não encontrado no servidor. A lista será atualizada. Detalhes: ${errorMessage}`);
-                fetchProducts(); // Refresh list to sync
-            } else {
-                alert(`Erro ao deletar produto: ${errorMessage}`);
-            }
+            console.error("Error deleting:", err);
+            alert(`Erro ao deletar produto: ${err.message}`);
         }
     };
 

@@ -22,7 +22,7 @@ export default function Navbar() {
                 <Link to="/" className="absolute left-1/2 -translate-x-1/2 group">
                     <div className="flex flex-col items-center">
                         {/* Using text fallback if image fails, or image with fallback */}
-                        <img src="/logo.png" alt="Ziv Bijus" className="h-16 w-auto object-contain transition-transform duration-500 group-hover:scale-105" />
+                        <img src="/logo.png" alt="Ziv Bijus" className="h-10 md:h-16 w-auto object-contain transition-transform duration-500 group-hover:scale-105" />
                     </div>
                 </Link>
 

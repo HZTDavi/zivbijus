@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import axios from 'axios';
+import { supabase } from '../supabaseClient';
 import ProductCard from '../components/ProductCard';
 import { Loader2, ArrowRight } from 'lucide-react';
-import { API_URL } from '../config';
 
 export default function Home() {
     const [products, setProducts] = useState([]);
@@ -11,31 +10,45 @@ export default function Home() {
 
     useEffect(() => {
         fetchProducts();
-    }, []);
+    }, [activeCategory]);
 
     const fetchProducts = async () => {
         try {
-            const res = await axios.get(`${API_URL}/api/products?publicOnly=true`);
-            // Safeguard: Ensure we received an array. If server returns HTML (error), default to empty.
-            if (res.data && Array.isArray(res.data.data)) {
-                setProducts(res.data.data);
-            } else {
-                console.error("API response weird (not array):", res.data);
+            setLoading(true);
+            let query = supabase
+                .from('products')
+                .select(`
+                    id, name, description, price, category, created_at, is_visible,
+                    product_images (image_url)
+                `)
+                .eq('is_visible', 1)
+                .order('created_at', { ascending: false });
+
+            if (activeCategory !== 'Todos') {
+                query = query.eq('category', activeCategory);
+            }
+
+            const { data, error } = await query;
+
+            if (error) {
+                console.error("Supabase Error:", error);
                 setProducts([]);
+            } else {
+                // Transform Supabase response to match old structure (images array)
+                const formatted = data.map(p => ({
+                    ...p,
+                    // If product_images is an array, map to strings. If null, empty array.
+                    images: p.product_images ? p.product_images.map(img => img.image_url) : []
+                }));
+                setProducts(formatted || []);
             }
         } catch (err) {
-            console.error(err);
+            console.error("Fetch Error:", err);
+            setProducts([]);
         } finally {
             setLoading(false);
         }
     };
-
-    // Filter products based on active category
-    const filteredProducts = !products
-        ? []
-        : activeCategory === 'Todos'
-            ? products
-            : products.filter(p => p.category === activeCategory);
 
     return (
         <div className="bg-primary min-h-screen">
@@ -68,7 +81,7 @@ export default function Home() {
 
             {/* Categories Filter (Visual Only for now) */}
             <section className="py-20 border-b border-white/5">
-                <div className="container mx-auto px-4 flex justify-center gap-8 md:gap-16">
+                <div className="container mx-auto px-4 flex flex-wrap justify-center gap-4 md:gap-16">
                     {['Todos', 'Pulseiras', 'Colares'].map((cat) => (
                         <button
                             key={cat}
@@ -91,13 +104,13 @@ export default function Home() {
 
                 {loading ? (
                     <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gold-metallic w-8 h-8" /></div>
-                ) : filteredProducts.length === 0 ? (
+                ) : products.length === 0 ? (
                     <div className="text-center py-20 border border-dashed border-white/10 rounded-lg">
                         <p className="text-beige-dark font-display">Nenhuma peça {activeCategory !== 'Todos' ? `da categoria ${activeCategory}` : ''} encontrada.</p>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-12">
-                        {filteredProducts.map(p => <ProductCard key={p.id} product={p} />)}
+                        {products.map(p => <ProductCard key={p.id} product={p} />)}
                     </div>
                 )}
             </section>

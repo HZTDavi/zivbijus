@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import axios from 'axios';
+import { supabase } from '../supabaseClient';
 import { ArrowLeft, Loader2, ShoppingBag } from 'lucide-react';
-import { API_URL } from '../config';
 import { useCart } from '../context/CartContext';
 
 export default function ProductDetails() {
@@ -18,17 +17,29 @@ export default function ProductDetails() {
 
     const fetchProduct = async () => {
         try {
-            // Fetching all for simplicity as per current backend implementation
-            const res = await axios.get(`${API_URL}/api/products?publicOnly=true`);
-            if (res.data && Array.isArray(res.data.data)) {
-                const found = res.data.data.find(p => p.id === parseInt(id));
-                if (found) {
-                    setProduct(found);
-                    if (found.images && found.images.length > 0) setSelectedImage(found.images[0]);
-                }
+            if (!id) return;
+
+            const { data, error } = await supabase
+                .from('products')
+                .select(`
+                    *,
+                    product_images (image_url)
+                `)
+                .eq('id', id)
+                .maybeSingle();
+
+            if (error) throw error;
+
+            if (data) {
+                const formatted = {
+                    ...data,
+                    images: data.product_images ? data.product_images.map(img => img.image_url) : []
+                };
+                setProduct(formatted);
+                if (formatted.images.length > 0) setSelectedImage(formatted.images[0]);
             }
         } catch (err) {
-            console.error(err);
+            console.error("Fetch Details Error:", err);
         } finally {
             setLoading(false);
         }

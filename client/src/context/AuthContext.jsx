@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_URL } from '../config';
+import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext();
 
@@ -9,31 +8,39 @@ export function AuthProvider({ children }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const token = sessionStorage.getItem('token'); // Changed to sessionStorage for session-only persistence
-        if (token) {
-            setUser({ token });
-        }
-        setLoading(false);
+        // Check active sessions and sets the user
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUser(session?.user ?? null);
+            setLoading(false);
+        });
+
+        // Listen for changes on auth state (logged in, signed out, etc.)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+            setLoading(false);
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
-    const login = async (username, password) => {
+    const login = async (email, password) => {
         try {
-            const res = await axios.post(`${API_URL}/api/login`, { username, password });
-            if (res.data.success) {
-                sessionStorage.setItem('token', res.data.token); // Changed to sessionStorage
-                setUser({ token: res.data.token });
-                return true;
-            }
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
+
+            if (error) throw error;
+
+            return true;
         } catch (error) {
-            console.error("Login Error", error);
+            console.error("Login Error:", error.message);
             return false;
         }
-        return false;
     };
 
-    const logout = () => {
-        sessionStorage.removeItem('token'); // Changed to sessionStorage
-        setUser(null);
+    const logout = async () => {
+        await supabase.auth.signOut();
     };
 
     return (
